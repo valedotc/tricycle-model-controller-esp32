@@ -40,7 +40,9 @@ Controller controller;
 Motor   motorL(25, 26, 0);
 Motor   motorR(33, 32, 1, /*invert=*/true);
 Encoder encL (34, 35);
-Encoder encR (36, 39, /*invert=*/true);
+// Encoder DX: fase B spostata da GPIO39 (VN) a D27 per liberare VN come
+// ingresso ADC1 della batteria (vedi sezione Batteria piu' sotto).
+Encoder encR (36, 27, /*invert=*/true);
 
 // PID: output limitato a 1.0 (Motor::setSpeed vuole [-1, 1]).
 // Tarati a vuoto (ruote in aria) il 2026-07-19 con encoder in quadratura x4:
@@ -56,6 +58,50 @@ Wheel wheelR(motorR, encR, pidR);
 
 // Velocita' massima in tick/sec - MISURALA col comando "max" e aggiorna qui.
 float MAX_TICKS_PER_SEC = 4100.0f;
+
+// ----------------------------------------------------------------------------
+//  Batteria motori (2S Li-ion, 6.0-8.4V). Partitore R1=100k / R2=50k (due 100k
+//  in parallelo) su GPIO39 (VN, ADC1). Rapporto pulito 1:3.
+//  ADC1 obbligatorio: ADC2 non funziona con il Bluetooth attivo.
+//  Lettura fatta solo a motori quasi fermi (sotto carico la V crolla e
+//  falserebbe). Isteresi sul cutoff per non rimbalzare on/off sulla soglia.
+// ----------------------------------------------------------------------------
+static const int   BATT_PIN      = 39;
+static const float DIV_RATIO     = 3.134f;   // (R1+R2)/R2 = 150k/50k. Calibra col
+                                           // multimetro se le tolleranze scostano.
+static const float V_FULL        = 8.4f;
+static const float V_EMPTY       = 6.0f;
+static const float V_CUTOFF      = 6.2f;   // sotto: blocco motori (margine sul 6.0)
+static const float V_CUTOFF_HYST = 0.4f;   // risale sopra cutoff+hyst per sbloccare
+
+bool batteryLockout = false;
+
+static float readBatteryVoltage() {
+  long sum = 0;
+  for (int i = 0; i < 16; i++) { sum += analogRead(BATT_PIN); delayMicroseconds(200); }
+  float vPin = (sum / 16.0f / 4095.0f) * 3.3f;
+  return vPin * DIV_RATIO;
+}
+
+// Chiamata a ~1 Hz, ma solo quando i motori sono quasi fermi. Aggiorna il
+// lockout con isteresi e colora la lightbar del DualSense come indicatore.
+static void updateBattery(bool motorsIdle) {
+  static uint32_t lastCheck = 0;
+  if (millis() - lastCheck < 1000) return;
+  lastCheck = millis();
+  if (!motorsIdle) return;
+
+  float v = readBatteryVoltage();
+  if (v < V_CUTOFF)                        batteryLockout = true;
+  else if (v > V_CUTOFF + V_CUTOFF_HYST)   batteryLockout = false;
+
+  int pct = constrain((int)((v - V_EMPTY) / (V_FULL - V_EMPTY) * 100.0f), 0, 100);
+  if (batteryLockout || pct < 20)   controller.setLightbar(255, 0,   0);   // rosso
+  else if (pct < 40)                controller.setLightbar(255, 120, 0);   // ambra
+  else                              controller.setLightbar(0,   255, 0);   // verde
+
+  Serial.printf("[BATT] %.2fV  %d%%  %s\n", v, pct, batteryLockout ? "LOCKOUT" : "ok");
+}
 
 // ----------------------------------------------------------------------------
 //  Feel / guidabilita' (solo modalita' GUIDA). Tutti ritoccabili a piacere.
@@ -154,6 +200,11 @@ void handleSerial() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+
+  // ADC batteria: 12 bit, attenuazione piena per arrivare fino a ~3.3V sul pin.
+  analogReadResolution(12);
+  analogSetPinAttenuation(BATT_PIN, ADC_11db);
+
   wheelL.begin();
   wheelR.begin();
 
@@ -217,6 +268,16 @@ void loop() {
   const auto& s = controller.state();
   float throttleRaw = s.r2 - s.l2;   // [-1..1]
   float steering    = s.lx;          // [-1..1]
+
+  // Batteria: leggo solo a gas quasi nullo (a motori fermi), coloro la
+  // lightbar e gestisco il cutoff. A gas dato la lettura viene saltata.
+  updateBattery(fabsf(throttleRaw) < 0.05f);
+  if (batteryLockout) {
+    wheelL.stop();
+    wheelR.stop();
+    throttleCmd = 0.0f;
+    return;
+  }
 
   // Rampa acceleratore: avvicina throttleCmd al comando grezzo, ma di poco per
   // ciclo. Decel piu' lenta dell'accel => rilascio = rallentamento graduale.

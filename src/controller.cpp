@@ -50,3 +50,14 @@ void Controller::update() {
 }
 
 bool Controller::isConnected() const { return _connected; }
+
+void Controller::setLightbar(uint8_t r, uint8_t g, uint8_t b) {
+  /* The esp-ps5 firmware tears the link down if output frames are sent
+     faster than ~10 ms apart, so emit only when the color actually
+     changed. Battery color changes rarely, so this stays well within the
+     limit even when called every control cycle. */
+  static uint8_t lastR = 1, lastG = 1, lastB = 1;   // impossibili all'avvio
+  if (r == lastR && g == lastG && b == lastB) return;
+  lastR = r; lastG = g; lastB = b;
+  ps5.lightbar(r, g, b).send();
+}

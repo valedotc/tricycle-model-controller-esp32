@@ -75,6 +75,16 @@ public:
    */
   const State& state() const { return _state; }
 
+  /*!
+   * \brief Set the controller lightbar color.
+   * \param r Red   [0..255].
+   * \param g Green [0..255].
+   * \param b Blue  [0..255].
+   * \note Only emits a frame when the color changes, to respect the
+   *       library's ~10 ms minimum output interval and avoid link drops.
+   */
+  void setLightbar(uint8_t r, uint8_t g, uint8_t b);
+
 private:
   State _state;             /*!< Cached inputs from the last update. */
   bool  _connected = false; /*!< Connection status as of the last update. */
