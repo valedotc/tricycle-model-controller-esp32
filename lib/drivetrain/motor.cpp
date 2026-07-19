@@ -1,10 +1,16 @@
 #include "motor.h"
 #include <Arduino.h>
 
+/* Con -D TEST_MODE (vedi platformio.ini) l'attuazione reale e' disabilitata:
+   nessun GPIO/PWM viene toccato. PID, encoder e log continuano a girare. */
+
 Motor::Motor(uint8_t in1, uint8_t in2, uint8_t pwmChannel, bool invert)
   : _in1(in1), _in2(in2), _pwmChannel(pwmChannel), _invert(invert) {}
 
 void Motor::begin() {
+#ifdef TEST_MODE
+  return;
+#endif
   pinMode(_in1, OUTPUT);
   pinMode(_in2, OUTPUT);
   ledcSetup(_pwmChannel, kPwmFreqHz, kPwmResBits);
@@ -12,6 +18,10 @@ void Motor::begin() {
 }
 
 void Motor::setSpeed(float speed) {
+#ifdef TEST_MODE
+  (void)speed;
+  return;
+#endif
   if (_invert) speed = -speed;
   speed = constrain(speed, -1.0f, 1.0f);
 
@@ -36,6 +46,9 @@ void Motor::setSpeed(float speed) {
 }
 
 void Motor::stop() {
+#ifdef TEST_MODE
+  return;
+#endif
   ledcDetachPin(_in1);
   ledcDetachPin(_in2);
   digitalWrite(_in1, LOW);

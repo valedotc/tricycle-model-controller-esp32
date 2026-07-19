@@ -1,31 +1,31 @@
-#include "controller.h"
+#include "input_dualsense.h"
 #include <ps5Controller.h>
 #include <cmath>
 
 /*!
- * \file Controller.cpp
- * \brief Controller implementation backed by the esp-ps5 library.
+ * \file input_dualsense.cpp
+ * \brief DualSenseInput implementation backed by the esp-ps5 library.
  *
  * \note The esp-ps5 library exposes a single global \c ps5 instance, so
- *       this class effectively wraps a singleton. Only one Controller
+ *       this class effectively wraps a singleton. Only one DualSenseInput
  *       should exist at a time.
  */
 
-void Controller::begin() {
+void DualSenseInput::begin() {
   ps5.begin(20); /* Try the MAC saved in NVS first, otherwise scan for 20 s. */
 }
 
-float Controller::applyDeadzone(float v) const {
+float DualSenseInput::applyDeadzone(float v) const {
   if (std::fabs(v) < _deadzone) return 0.0f;
   /* Rescale the remainder across the full range to avoid a jump at the edge. */
   float sign = (v > 0) ? 1.0f : -1.0f;
   return sign * (std::fabs(v) - _deadzone) / (1.0f - _deadzone);
 }
 
-void Controller::update() {
+void DualSenseInput::update() {
   _connected = ps5.isConnected();
   if (!_connected) {
-    _state = State{}; /* Zero everything: safety, no phantom inputs. */
+    _state = InputState{}; /* Zero everything: safety, no phantom inputs. */
     return;
   }
 
@@ -49,9 +49,9 @@ void Controller::update() {
   _state.dpadRight = ps5.right;
 }
 
-bool Controller::isConnected() const { return _connected; }
+bool DualSenseInput::isConnected() const { return _connected; }
 
-void Controller::setLightbar(uint8_t r, uint8_t g, uint8_t b) {
+void DualSenseInput::setLightbar(uint8_t r, uint8_t g, uint8_t b) {
   /* The esp-ps5 firmware tears the link down if output frames are sent
      faster than ~10 ms apart, so emit only when the color actually
      changed. Battery color changes rarely, so this stays well within the
